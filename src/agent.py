@@ -13,10 +13,21 @@ from livekit.agents import (
     RunContext,
     WorkerOptions,
     cli,
+    llm,
     metrics,
+    stt,
+    tts,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import cartesia, deepgram, noise_cancellation, openai, silero
+from livekit.plugins import (
+    cartesia,
+    deepgram,
+    elevenlabs,
+    google,
+    noise_cancellation,
+    openai,
+    silero,
+)
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("agent")
@@ -65,13 +76,28 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all providers at https://docs.livekit.io/agents/integrations/llm/
-        llm=openai.LLM(model="gpt-4o-mini"),
+        llm=llm.FallbackAdapter(
+            [
+                google.LLM(model="gemini-2.0-flash-exp"),
+                openai.LLM(model="gpt-4o-mini"),
+            ]
+        ),
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all providers at https://docs.livekit.io/agents/integrations/stt/
-        stt=deepgram.STT(model="nova-3", language="multi"),
+        stt=stt.FallbackAdapter(
+            [
+                deepgram.STT(model="nova-3", language="multi"),
+            ]
+        ),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all providers at https://docs.livekit.io/agents/integrations/tts/
-        tts=cartesia.TTS(voice="6f84f4b8-58a2-430c-8c79-688dad597532"),
+        tts=tts.FallbackAdapter([
+            elevenlabs.TTS(
+                voice_id="ODq5zmih8GrVes37Dizd",
+                model="eleven_multilingual_v2"
+            ),
+            cartesia.TTS(voice="6f84f4b8-58a2-430c-8c79-688dad597532")
+        ]),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),
