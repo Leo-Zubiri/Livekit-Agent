@@ -30,6 +30,8 @@ from livekit.plugins import (
 )
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from langfuse import setup_langfuse
+
 logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
@@ -67,10 +69,19 @@ def prewarm(proc: JobProcess):
 
 async def entrypoint(ctx: JobContext):
     # Logging setup
+
     # Add any other context you want in all log entries here
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+
+    # LANGFUSE
+        # 1. Configurar LangFuse para trazar toda la sesión
+    trace_provider = setup_langfuse(metadata={"langfuse.session.id": ctx.room.name})
+        # Callback para flush de trazas al terminar
+    async def flush_trace():
+        trace_provider.force_flush()
+    ctx.add_shutdown_callback(flush_trace)
 
     # Set up a voice AI pipeline using OpenAI, Cartesia, Deepgram, and the LiveKit turn detector
     session = AgentSession(
