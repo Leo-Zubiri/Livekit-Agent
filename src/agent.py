@@ -1,6 +1,7 @@
 import logging
 
 from dotenv import load_dotenv
+from livekit import api
 from livekit.agents import (
     NOT_GIVEN,
     Agent,
@@ -13,6 +14,7 @@ from livekit.agents import (
     RunContext,
     WorkerOptions,
     cli,
+    get_job_context,
     llm,
     metrics,
     stt,
@@ -46,6 +48,14 @@ class Assistant(Agent):
             You are curious, friendly, and have a sense of humor.""",
         )
 
+    # to hang up the call as part of a function call
+    @function_tool
+    async def end_call(self, ctx: RunContext):
+        """Called when the user wants to end the call"""
+        await ctx.wait_for_playout()  # let the agent finish speaking
+
+        await hangup_call()
+
     # all functions annotated with @function_tool will be passed to the LLM when this
     # agent is active
     @function_tool
@@ -76,11 +86,13 @@ async def entrypoint(ctx: JobContext):
     }
 
     # LANGFUSE
-        # 1. Configurar LangFuse para trazar toda la sesión
+    # 1. Configurar LangFuse para trazar toda la sesión
     trace_provider = setup_langfuse(metadata={"langfuse.session.id": ctx.room.name})
-        # Callback para flush de trazas al terminar
+
+    # Callback para flush de trazas al terminar
     async def flush_trace():
         trace_provider.force_flush()
+
     ctx.add_shutdown_callback(flush_trace)
 
     # Set up a voice AI pipeline using OpenAI, Cartesia, Deepgram, and the LiveKit turn detector
@@ -89,8 +101,8 @@ async def entrypoint(ctx: JobContext):
         # See all providers at https://docs.livekit.io/agents/integrations/llm/
         llm=llm.FallbackAdapter(
             [
-                google.LLM(model="gemini-2.0-flash-exp"),
                 openai.LLM(model="gpt-4o-mini"),
+                google.LLM(model="gemini-2.0-flash-exp"),
             ]
         ),
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
@@ -102,13 +114,14 @@ async def entrypoint(ctx: JobContext):
         ),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all providers at https://docs.livekit.io/agents/integrations/tts/
-        tts=tts.FallbackAdapter([
-            elevenlabs.TTS(
-                voice_id="ODq5zmih8GrVes37Dizd",
-                model="eleven_multilingual_v2"
-            ),
-            cartesia.TTS(voice="6f84f4b8-58a2-430c-8c79-688dad597532")
-        ]),
+        tts=tts.FallbackAdapter(
+            [
+                elevenlabs.TTS(
+                    voice_id="ODq5zmih8GrVes37Dizd", model="eleven_multilingual_v2"
+                ),
+                cartesia.TTS(voice="6f84f4b8-58a2-430c-8c79-688dad597532"),
+            ]
+        ),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),
@@ -168,11 +181,25 @@ async def entrypoint(ctx: JobContext):
 
     # Initial greeting
     await session.generate_reply(
-    instructions="Greet the user and offer your assistance."
+        instructions="Greet the user and offer your assistance."
     )
 
     # Join the room and connect to the user
     await ctx.connect()
+
+
+# Add this function definition anywhere
+async def hangup_call():
+    ctx = get_job_context()
+    if ctx is None:
+        # Not running in a job context
+        return
+
+    await ctx.api.room.delete_room(
+        api.DeleteRoomRequest(
+            room=ctx.room.name,
+        )
+    )
 
 
 if __name__ == "__main__":
