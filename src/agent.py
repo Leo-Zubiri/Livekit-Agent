@@ -166,6 +166,11 @@ async def entrypoint(ctx: JobContext):
         ),
     )
 
+    # Initial greeting
+    await session.generate_reply(
+    instructions="Greet the user and offer your assistance."
+    )
+
     # Join the room and connect to the user
     await ctx.connect()
 
